@@ -78,6 +78,7 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
   final _notesCtrl = TextEditingController();
 
   PayMethod _method = PayMethod.bankTransfer;
+  String _network = 'airtel';
   late String _term;
   _Stage _stage = _Stage.choose;
   String? _error;
@@ -142,9 +143,17 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
   }
 
   // ── Pay now, through PayChangu ─────────────────────────────────────────
-  Future<void> _payNow() async {
+  /// [card] sends the payer to PayChangu's page (the only place a card number
+  /// is typed); otherwise a mobile money prompt is pushed to the phone and the
+  /// payer never leaves the app.
+  Future<void> _payNow({bool card = false}) async {
     final amount = _readAmount();
     if (amount == null) return;
+    final mobile = _phoneCtrl.text.trim();
+    if (!card && mobile.replaceAll(RegExp(r'\D'), '').length < 9) {
+      setState(() => _error = 'Enter the mobile money number to pay from');
+      return;
+    }
 
     setState(() {
       _error = null;
@@ -153,14 +162,25 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
     });
 
     try {
-      final checkout = await _gateway.startCheckout(
-        student: widget.student,
-        amount: amount,
-        term: _term,
-        payerName: widget.recordedBy,
-        payerPhone: _phoneCtrl.text.trim(),
-        academicYear: await widget.service.currentAcademicYear(widget.student),
-      );
+      final year = await widget.service.currentAcademicYear(widget.student);
+      final checkout = card
+          ? await _gateway.startCheckout(
+              student: widget.student,
+              amount: amount,
+              term: _term,
+              payerName: widget.recordedBy,
+              payerPhone: mobile,
+              academicYear: year,
+            )
+          : await _gateway.startMobileMoney(
+              student: widget.student,
+              amount: amount,
+              term: _term,
+              network: _network,
+              mobile: mobile,
+              payerName: widget.recordedBy,
+              academicYear: year,
+            );
 
       if (!mounted) return;
       setState(() {
@@ -168,9 +188,11 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
         _stage = _Stage.waiting;
       });
 
-      final opened = await _gateway.openCheckout(checkout.checkoutUrl);
-      if (mounted && !opened) {
-        setState(() => _notice = 'Could not open your browser. Tap "Open the payment page" below.');
+      if (!checkout.inApp) {
+        final opened = await _gateway.openCheckout(checkout.checkoutUrl);
+        if (mounted && !opened) {
+          setState(() => _notice = 'Could not open your browser. Tap "Open the payment page" below.');
+        }
       }
 
       _startWatching(checkout);
@@ -351,8 +373,8 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
           _grabber(),
           _title('Pay now'),
           Text(
-            'You will finish on PayChangu\'s secure page. Acalink never sees your PIN or '
-            'card number.',
+            'Enter your mobile money number and approve the prompt that appears on your '
+            'phone. You stay in Acalink the whole time.',
             style: TextStyle(fontSize: 12.5, height: 1.45, color: context.colors.textSecondary),
           ),
           const SizedBox(height: 20),
@@ -372,17 +394,33 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
           _label('TERM'),
           _termPicker(),
           const SizedBox(height: 18),
+          _label('PAY WITH'),
+          Row(
+            children: [
+              _networkChip('airtel', 'Airtel Money'),
+              const SizedBox(width: 10),
+              _networkChip('tnm', 'TNM Mpamba'),
+            ],
+          ),
+          const SizedBox(height: 18),
           _label('MOBILE MONEY NUMBER'),
           _field(controller: _phoneCtrl, keyboardType: TextInputType.phone, hintText: '099X XXX XXX'),
           const SizedBox(height: 6),
           Text(
-            'The handset that will approve the payment.',
+            'The phone that will get the PIN prompt.',
             style: TextStyle(fontSize: 11.5, color: context.colors.textMuted),
           ),
           if (_error != null) _errorRow(_error!),
           const SizedBox(height: 20),
-          _primaryButton('Continue to PayChangu', _payNow),
-          const SizedBox(height: 8),
+          _primaryButton('Pay now', _payNow),
+          const SizedBox(height: 4),
+          Center(
+            child: TextButton(
+              onPressed: () => _payNow(card: true),
+              child: Text('Pay by card or bank instead',
+                  style: TextStyle(fontSize: 12.5, color: context.colors.textSecondary)),
+            ),
+          ),
           _backButton(),
         ],
       ),
@@ -463,9 +501,15 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
           ),
         ),
         const SizedBox(height: 20),
-        _step(1, 'Choose Airtel Money, TNM Mpamba or card on the page that opened.'),
-        _step(2, 'Approve the prompt on your phone.'),
-        _step(3, 'Come back here — this updates by itself.'),
+        if (_checkout?.inApp ?? false) ...[
+          _step(1, 'A payment prompt has been sent to ${_checkout!.mobile}.'),
+          _step(2, 'Enter your ${_checkout!.network == 'tnm' ? 'TNM Mpamba' : 'Airtel Money'} PIN to approve it.'),
+          _step(3, 'This screen updates by itself once it clears.'),
+        ] else ...[
+          _step(1, 'Choose Airtel Money, TNM Mpamba or card on the page that opened.'),
+          _step(2, 'Approve the prompt on your phone.'),
+          _step(3, 'Come back here — this updates by itself.'),
+        ],
         if (_notice != null) ...[
           const SizedBox(height: 10),
           Text(_notice!, style: TextStyle(fontSize: 12, color: context.colors.textSecondary)),
@@ -484,6 +528,7 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
             style: TextStyle(fontSize: 11.5, height: 1.5, color: context.colors.textSecondary),
           ),
         ),
+        if (!(_checkout?.inApp ?? false)) ...[
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
@@ -500,6 +545,7 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
             child: const Text('Open the payment page', style: TextStyle(fontSize: 13.5)),
           ),
         ),
+        ],
       ],
     );
   }
@@ -560,6 +606,30 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
   }
 
   // ── Small pieces ───────────────────────────────────────────────────────
+
+  Widget _networkChip(String id, String label) {
+    final on = _network == id;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => setState(() => _network = id),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? context.colors.primaryPale : context.colors.cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: on ? context.colors.primary : context.colors.border, width: on ? 1.6 : 1),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: on ? context.colors.primaryLight : context.colors.textPrimary)),
+        ),
+      ),
+    );
+  }
 
   Widget _grabber() => Center(
         child: Container(
