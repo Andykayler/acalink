@@ -72,12 +72,21 @@ class Checkout {
   /// charged. Zero when the server did not say; see [total].
   final int fee;
 
+  /// Set for an in-app mobile money charge ('airtel' | 'tnm') and the number
+  /// the prompt went to; empty for a hosted checkout.
+  final String network;
+  final String mobile;
+
   const Checkout({
     required this.txRef,
     required this.checkoutUrl,
     required this.amount,
     this.fee = 0,
+    this.network = '',
+    this.mobile = '',
   });
+
+  bool get inApp => checkoutUrl.isEmpty;
 
   /// What PayChangu will take from the parent.
   int get total => amount + fee;
@@ -126,6 +135,45 @@ class PayChanguService {
       checkoutUrl: url,
       amount: (data['amount'] as num?)?.toInt() ?? amount,
       fee: (data['fee'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// Charges a mobile money wallet without leaving the app: PayChangu pushes a
+  /// PIN prompt to [mobile] and the caller waits on [watch]. The returned
+  /// [Checkout] has an empty `checkoutUrl` — there is no page to visit.
+  Future<Checkout> startMobileMoney({
+    required Student student,
+    required int amount,
+    required String term,
+    required String network, // 'airtel' | 'tnm'
+    required String mobile,
+    String payerName = '',
+    String academicYear = '',
+  }) async {
+    final data = await _api.post('/api/payments/initiate', {
+      'purpose': 'school_fee',
+      'method': 'mobile_money',
+      'network': network,
+      'mobile': mobile,
+      'studentId': student.id,
+      'amount': amount,
+      'term': term,
+      'academicYear': academicYear,
+      'payerName': payerName.isNotEmpty ? payerName : student.guardianName,
+      'payerPhone': mobile,
+      'payerEmail': student.guardianEmail,
+    });
+    final ref = data['txRef'] as String?;
+    if (ref == null) {
+      throw const ApiException('Acalink could not start the payment. Try again shortly.');
+    }
+    return Checkout(
+      txRef: ref,
+      checkoutUrl: '',
+      amount: (data['amount'] as num?)?.toInt() ?? amount,
+      fee: (data['fee'] as num?)?.toInt() ?? 0,
+      network: network,
+      mobile: mobile,
     );
   }
 
