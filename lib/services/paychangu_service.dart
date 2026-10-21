@@ -61,6 +61,23 @@ class PaymentStatus {
 
 /// What [PayChanguService.startCheckout] hands back: where to send the payer,
 /// and the reference to watch afterwards.
+/// Where to send a bank transfer, and exactly how much.
+class BankDetails {
+  final String bankName;
+  final String accountNumber;
+  final String accountName;
+  final int payExactly;
+  final DateTime? expiresAt;
+
+  const BankDetails({
+    required this.bankName,
+    required this.accountNumber,
+    required this.accountName,
+    required this.payExactly,
+    this.expiresAt,
+  });
+}
+
 class Checkout {
   final String txRef;
   final String checkoutUrl;
@@ -77,6 +94,9 @@ class Checkout {
   final String network;
   final String mobile;
 
+  /// Set when the payer is to send a bank transfer to a generated account.
+  final BankDetails? bank;
+
   const Checkout({
     required this.txRef,
     required this.checkoutUrl,
@@ -84,6 +104,7 @@ class Checkout {
     this.fee = 0,
     this.network = '',
     this.mobile = '',
+    this.bank,
   });
 
   bool get inApp => checkoutUrl.isEmpty;
@@ -174,6 +195,47 @@ class PayChanguService {
       fee: (data['fee'] as num?)?.toInt() ?? 0,
       network: network,
       mobile: mobile,
+    );
+  }
+
+  /// Asks for a one-off bank account to transfer to, shown inside the app.
+  /// The returned [Checkout] has an empty `checkoutUrl` and a [BankDetails].
+  Future<Checkout> startBankTransfer({
+    required Student student,
+    required int amount,
+    required String term,
+    String payerName = '',
+    String academicYear = '',
+  }) async {
+    final data = await _api.post('/api/payments/initiate', {
+      'purpose': 'school_fee',
+      'method': 'bank_transfer',
+      'studentId': student.id,
+      'amount': amount,
+      'term': term,
+      'academicYear': academicYear,
+      'payerName': payerName.isNotEmpty ? payerName : student.guardianName,
+      'payerPhone': student.guardianPhone,
+      'payerEmail': student.guardianEmail,
+    });
+    final ref = data['txRef'] as String?;
+    final bank = data['bankTransfer'] as Map<String, dynamic>?;
+    if (ref == null || bank == null) {
+      throw const ApiException('Acalink could not get bank details. Try again shortly.');
+    }
+    final expires = (bank['expiresAt'] as num?)?.toInt() ?? 0;
+    return Checkout(
+      txRef: ref,
+      checkoutUrl: '',
+      amount: (data['amount'] as num?)?.toInt() ?? amount,
+      fee: (data['fee'] as num?)?.toInt() ?? 0,
+      bank: BankDetails(
+        bankName: (bank['bankName'] as String?) ?? '',
+        accountNumber: (bank['accountNumber'] as String?) ?? '',
+        accountName: (bank['accountName'] as String?) ?? '',
+        payExactly: (bank['payExactly'] as num?)?.toInt() ?? 0,
+        expiresAt: expires > 0 ? DateTime.fromMillisecondsSinceEpoch(expires) : null,
+      ),
     );
   }
 

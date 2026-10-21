@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
@@ -146,11 +147,11 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
   /// [card] sends the payer to PayChangu's page (the only place a card number
   /// is typed); otherwise a mobile money prompt is pushed to the phone and the
   /// payer never leaves the app.
-  Future<void> _payNow({bool card = false}) async {
+  Future<void> _payNow({bool card = false, bool bank = false}) async {
     final amount = _readAmount();
     if (amount == null) return;
     final mobile = _phoneCtrl.text.trim();
-    if (!card && mobile.replaceAll(RegExp(r'\D'), '').length < 9) {
+    if (!card && !bank && mobile.replaceAll(RegExp(r'\D'), '').length < 9) {
       setState(() => _error = 'Enter the mobile money number to pay from');
       return;
     }
@@ -163,7 +164,15 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
 
     try {
       final year = await widget.service.currentAcademicYear(widget.student);
-      final checkout = card
+      final checkout = bank
+          ? await _gateway.startBankTransfer(
+              student: widget.student,
+              amount: amount,
+              term: _term,
+              payerName: widget.recordedBy,
+              academicYear: year,
+            )
+          : card
           ? await _gateway.startCheckout(
               student: widget.student,
               amount: amount,
@@ -416,8 +425,15 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
           const SizedBox(height: 4),
           Center(
             child: TextButton(
+              onPressed: () => _payNow(bank: true),
+              child: Text('Pay by bank transfer instead',
+                  style: TextStyle(fontSize: 12.5, color: context.colors.textSecondary)),
+            ),
+          ),
+          Center(
+            child: TextButton(
               onPressed: () => _payNow(card: true),
-              child: Text('Pay by card or bank instead',
+              child: Text('Pay by card instead',
                   style: TextStyle(fontSize: 12.5, color: context.colors.textSecondary)),
             ),
           ),
@@ -481,7 +497,7 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
                 child: CircularProgressIndicator(strokeWidth: 2.6, color: context.colors.primary),
               ),
               const SizedBox(height: 14),
-              Text('Waiting for your payment',
+              Text(_checkout?.bank != null ? 'Send your transfer' : 'Waiting for your payment',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: context.colors.textPrimary)),
               const SizedBox(height: 4),
               Text(formatCurrency(_checkout?.total ?? 0),
@@ -501,7 +517,13 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
           ),
         ),
         const SizedBox(height: 20),
-        if (_checkout?.inApp ?? false) ...[
+        if (_checkout?.bank != null) ...[
+          _bankCard(_checkout!.bank!),
+          const SizedBox(height: 12),
+          _step(1, 'Open your bank app or dial your bank\'s USSD and choose Instant Transfer.'),
+          _step(2, 'Send exactly ${formatCurrency(_checkout!.bank!.payExactly)} to the account above. A different amount is declined.'),
+          _step(3, 'This screen updates by itself once the transfer arrives.'),
+        ] else if (_checkout?.inApp ?? false) ...[
           _step(1, 'A payment prompt has been sent to ${_checkout!.mobile}.'),
           _step(2, 'Enter your ${_checkout!.network == 'tnm' ? 'TNM Mpamba' : 'Airtel Money'} PIN to approve it.'),
           _step(3, 'This screen updates by itself once it clears.'),
@@ -606,6 +628,67 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
   }
 
   // ── Small pieces ───────────────────────────────────────────────────────
+
+  Widget _bankCard(BankDetails b) {
+    Widget row(String label, String value, {String? copy}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: TextStyle(fontSize: 11, color: context.colors.textMuted)),
+                    const SizedBox(height: 2),
+                    Text(value,
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700, color: context.colors.textPrimary)),
+                  ],
+                ),
+              ),
+              if (copy != null)
+                IconButton(
+                  tooltip: 'Copy',
+                  icon: Icon(Icons.copy_rounded, size: 18, color: context.colors.textSecondary),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: copy));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)),
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
+    final exp = b.expiresAt;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+      decoration: BoxDecoration(
+        color: context.colors.cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: context.colors.border),
+      ),
+      child: Column(
+        children: [
+          row('Bank', b.bankName),
+          row('Account name', b.accountName),
+          row('Account number', b.accountNumber, copy: b.accountNumber),
+          row('Send exactly', formatCurrency(b.payExactly), copy: b.payExactly.toString()),
+          if (exp != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 6, top: 2),
+                child: Text(
+                  'Valid until ${exp.hour.toString().padLeft(2, '0')}:${exp.minute.toString().padLeft(2, '0')}',
+                  style: TextStyle(fontSize: 11.5, color: context.colors.textMuted),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _networkChip(String id, String label) {
     final on = _network == id;
