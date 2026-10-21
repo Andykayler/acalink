@@ -18,21 +18,205 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Stay close to your child's school: fees, results, attendance and messages.">
+  <meta name="theme-color" content="#0D1427">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="acalink">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Acalink">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>acalink</title>
+  <title>Acalink</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    The first thing a parent sees. Flutter's engine takes a moment to download
+    and start, and until it does the page is blank — a white screen on a slow
+    connection. This is the Acalink loader instead, in plain HTML and CSS so it
+    paints immediately, and it matches the app's own loader
+    (lib/widgets/acalink_loader.dart) so the hand-over is not noticeable: the
+    cap assembles, the tassel swings, light sweeps the tile and two rings orbit.
+    It fades away on Flutter's first frame, but never before its own intro has
+    played (see the script below).
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #0D1427; }
+    #acalink-splash {
+      position: fixed; inset: 0; z-index: 99999; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; overflow: hidden;
+      background: radial-gradient(ellipse 95% 95% at 50% 44%, #1B2A55 0%, #0D1427 70%);
+      transition: opacity 500ms ease;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    #acalink-splash.done { opacity: 0; pointer-events: none; }
+
+    /* Drifting stars */
+    #acalink-splash .star {
+      position: absolute; border-radius: 50%; background: #9DB4FF; opacity: 0;
+      animation: ac-drift linear infinite, ac-twinkle ease-in-out infinite;
+    }
+    @keyframes ac-drift { from { transform: translateY(0); } to { transform: translateY(-105vh); } }
+    @keyframes ac-twinkle { 0%, 100% { opacity: .08; } 50% { opacity: .5; } }
+
+    #acalink-splash .stage { position: relative; width: min(78vw, 360px, 52vh); aspect-ratio: 1; }
+    #acalink-splash svg { width: 100%; height: 100%; overflow: visible; display: block; }
+
+    /* Glow behind the tile */
+    #acalink-splash .glow { transform-origin: 50% 50%; animation: ac-glow-in 800ms ease-out both, ac-breathe 3400ms ease-in-out 800ms infinite; }
+    @keyframes ac-glow-in { from { opacity: 0; } to { opacity: .9; } }
+    @keyframes ac-breathe { 0%, 100% { transform: scale(1); opacity: .75; } 50% { transform: scale(1.07); opacity: 1; } }
+
+    /* The tile pops in, then floats */
+    #acalink-splash .tile { transform-origin: 256px 256px; animation: ac-pop 800ms cubic-bezier(.2,1.5,.45,1) both, ac-float 3400ms ease-in-out 800ms infinite; }
+    @keyframes ac-pop { from { transform: scale(.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes ac-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+
+    /* The cap assembles */
+    #acalink-splash .board { animation: ac-board 750ms cubic-bezier(.2,1.4,.4,1) 270ms both; }
+    #acalink-splash .body  { animation: ac-body 700ms cubic-bezier(.2,.9,.3,1) 500ms both; }
+    @keyframes ac-board { from { transform: translateY(-120px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes ac-body  { from { transform: translateY(90px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    #acalink-splash .tassel {
+      transform-origin: 446px 236px;
+      animation: ac-tassel 1100ms cubic-bezier(.25,1.6,.4,1) 950ms both, ac-sway 3400ms ease-in-out 2100ms infinite;
+    }
+    @keyframes ac-tassel { from { transform: rotate(62deg); opacity: 0; } 25% { opacity: 1; } to { transform: rotate(0); opacity: 1; } }
+    @keyframes ac-sway { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(2deg); } }
+
+    /* Light sweeping across the tile */
+    #acalink-splash .sweep { transform: translateX(-300px); animation: ac-sweep 3400ms ease-in-out 1500ms infinite backwards; }
+    @keyframes ac-sweep { 0%, 55% { transform: translateX(-300px); } 95%, 100% { transform: translateX(560px); } }
+
+    /* Orbiting rings, opposite directions */
+    #acalink-splash .ring { transform-origin: 256px 256px; opacity: 0; animation: ac-ring-in 700ms ease-out 450ms forwards; }
+    #acalink-splash .ring-a .spin { transform-origin: 256px 256px; animation: ac-spin 3400ms linear infinite; }
+    #acalink-splash .ring-b .spin { transform-origin: 256px 256px; animation: ac-spin 4860ms linear infinite reverse; }
+    @keyframes ac-ring-in { to { opacity: 1; } }
+    @keyframes ac-spin { to { transform: rotate(360deg); } }
+
+    /* The name */
+    #acalink-splash .name { margin-top: 4px; display: flex; gap: 7px; }
+    #acalink-splash .name span {
+      color: #fff; font-size: 26px; font-weight: 700; letter-spacing: 2px; opacity: 0;
+      animation: ac-letter 650ms cubic-bezier(.2,.8,.3,1) both;
+    }
+    @keyframes ac-letter { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Progress shimmer */
+    #acalink-splash .bar { margin-top: 22px; width: 120px; height: 3px; border-radius: 3px; background: rgba(255,255,255,.10); overflow: hidden; opacity: 0; animation: ac-fade 600ms ease 1300ms forwards; }
+    #acalink-splash .bar i { display: block; width: 38%; height: 100%; background: linear-gradient(90deg, rgba(77,107,243,0), #9DB4FF, rgba(77,107,243,0)); animation: ac-bar 1700ms ease-in-out infinite; }
+    @keyframes ac-fade { to { opacity: 1; } }
+    @keyframes ac-bar { from { transform: translateX(-100%); } to { transform: translateX(270%); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      #acalink-splash *, #acalink-splash *::before { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
 </head>
 <body>
+  <div id="acalink-splash" role="status" aria-label="Loading Acalink">
+    <div id="ac-stars"></div>
+    <div class="stage">
+      <svg viewBox="0 0 512 512" aria-hidden="true">
+        <defs>
+          <linearGradient id="ac-tile" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#4D6BF3"/><stop offset="1" stop-color="#3D59DD"/>
+          </linearGradient>
+          <radialGradient id="ac-glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0" stop-color="#4F6EF7" stop-opacity=".5"/><stop offset="1" stop-color="#4F6EF7" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="ac-band" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".36"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+          </linearGradient>
+          <clipPath id="ac-clip"><rect x="116" y="116" width="280" height="280" rx="63"/></clipPath>
+          <filter id="ac-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="26"/></filter>
+        </defs>
+
+        <circle class="glow" cx="256" cy="256" r="250" fill="url(#ac-glow)"/>
+
+        <!-- Each ring is a faint circle with a comet on it: three arcs of different length that
+             end (ring a) or start (ring b) at the bright head, so the tail fades away behind it. -->
+        <g class="ring ring-a"><g class="spin">
+          <circle cx="256" cy="256" r="224" fill="none" stroke="#9DB4FF" stroke-opacity=".10"/>
+          <circle cx="256" cy="256" r="224" fill="none" stroke="#9DB4FF" stroke-opacity=".14" stroke-width="3" stroke-linecap="round" stroke-dasharray="500 907" stroke-dashoffset="-555"/>
+          <circle cx="256" cy="256" r="224" fill="none" stroke="#9DB4FF" stroke-opacity=".30" stroke-width="3" stroke-linecap="round" stroke-dasharray="330 1077" stroke-dashoffset="-725"/>
+          <circle cx="256" cy="256" r="224" fill="none" stroke="#9DB4FF" stroke-opacity=".75" stroke-width="3" stroke-linecap="round" stroke-dasharray="150 1257" stroke-dashoffset="-905"/>
+          <circle cx="256" cy="32" r="9" fill="#9DB4FF" opacity=".5"/><circle cx="256" cy="32" r="4.5" fill="#fff"/>
+        </g></g>
+        <g class="ring ring-b"><g class="spin">
+          <circle cx="256" cy="256" r="270" fill="none" stroke="#22D3DE" stroke-opacity=".08"/>
+          <circle cx="256" cy="256" r="270" fill="none" stroke="#22D3DE" stroke-opacity=".14" stroke-width="2" stroke-linecap="round" stroke-dasharray="400 1296" stroke-dashoffset="-1272"/>
+          <circle cx="256" cy="256" r="270" fill="none" stroke="#22D3DE" stroke-opacity=".32" stroke-width="2" stroke-linecap="round" stroke-dasharray="260 1436" stroke-dashoffset="-1272"/>
+          <circle cx="256" cy="256" r="270" fill="none" stroke="#22D3DE" stroke-opacity=".75" stroke-width="2" stroke-linecap="round" stroke-dasharray="110 1586" stroke-dashoffset="-1272"/>
+          <circle cx="256" cy="-14" r="7" fill="#22D3DE" opacity=".5"/><circle cx="256" cy="-14" r="3.5" fill="#fff"/>
+        </g></g>
+
+        <g class="tile">
+          <rect x="116" y="124" width="280" height="280" rx="63" fill="#4D6BF3" filter="url(#ac-blur)" opacity=".4"/>
+          <rect x="116" y="116" width="280" height="280" rx="63" fill="url(#ac-tile)"/>
+          <g transform="translate(256 256) scale(.5458) translate(-256 -274)">
+            <polygon class="body" points="148,283 256,338 364,283 364,358 256,410 148,358" fill="#fff"/>
+            <polygon class="board" points="62,231 256,138 450,231 256,324" fill="#fff"/>
+            <rect class="tassel" x="438" y="236" width="16" height="112" rx="3" fill="#fff"/>
+          </g>
+          <g clip-path="url(#ac-clip)"><g class="sweep">
+            <rect x="60" y="60" width="74" height="400" fill="url(#ac-band)" transform="rotate(-24 100 256)"/>
+          </g></g>
+        </g>
+      </svg>
+    </div>
+    <div class="name" id="ac-name"></div>
+    <div class="bar"><i></i></div>
+  </div>
+
+  <script>
+    // Build the stars and the typed-in name (kept out of the markup so it stays readable).
+    (function () {
+      var stars = document.getElementById('ac-stars');
+      for (var i = 0; i < 26; i++) {
+        var s = document.createElement('div');
+        var size = 1 + Math.random() * 2.2;
+        s.className = 'star';
+        s.style.cssText = 'left:' + (Math.random() * 100) + 'vw;top:' + (40 + Math.random() * 70) + 'vh;width:' + size + 'px;height:' + size +
+          'px;animation-duration:' + (14 + Math.random() * 18) + 's,' + (2 + Math.random() * 3) + 's;animation-delay:-' + (Math.random() * 20) + 's,-' + (Math.random() * 4) + 's';
+        stars.appendChild(s);
+      }
+      var name = document.getElementById('ac-name');
+      'ACALINK'.split('').forEach(function (ch, i) {
+        var l = document.createElement('span');
+        l.textContent = ch;
+        l.style.animationDelay = (900 + i * 80) + 'ms';
+        name.appendChild(l);
+      });
+    })();
+
+    // Hand over to Flutter. The splash goes on Flutter's first frame, but not
+    // before its own intro (about 1.9s) has finished, so a fast, cached start
+    // does not cut the cap off half-built. A safety timer removes it regardless.
+    (function () {
+      var splash = document.getElementById('acalink-splash');
+      var shownAt = Date.now();
+      var MIN_MS = 1900;
+      var gone = false;
+      function hide() {
+        if (gone) return;
+        gone = true;
+        splash.classList.add('done');
+        setTimeout(function () { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 700);
+      }
+      window.addEventListener('flutter-first-frame', function () {
+        setTimeout(hide, Math.max(0, MIN_MS - (Date.now() - shownAt)));
+      });
+      setTimeout(hide, 20000);
+    })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

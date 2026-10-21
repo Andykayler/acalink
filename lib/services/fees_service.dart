@@ -1,3 +1,5 @@
+import '../core/academic_year.dart';
+import 'academic_term_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/student.dart';
 
@@ -15,19 +17,6 @@ Map<String, dynamic> _ctx(Student s) => {
       'className': s.className,
       'schoolCode': s.schoolCode,
     };
-
-// Kept as a fixed constant (matching the bursar console's default filter)
-// rather than read off Student, so a read always lines up with what was
-// just written — no dependency on a Student.academicYear field we can't
-// verify. Bump this when the school year rolls over, or wire it to a
-// real source once confirmed.
-const _academicYear = "2025/2026"; // TODO: make dynamic / from provider
-
-/// The same value, exported so anything watching these collections filters
-/// on the year the fetch filters on. A listener that disagreed would either
-/// be refused outright — a list is authorised from its own constraints — or
-/// simply never fire, which is worse because it looks like nothing changed.
-const feesAcademicYear = _academicYear;
 
 /// ─── Domain models (aligned with Firebase schema from bursar view) ───────
 enum FeeStatus { paid, partial, unpaid }
@@ -171,17 +160,41 @@ const _terms = ['Term 1', 'Term 2', 'Term 3', 'Full Year'];
 
 class FeesService {
   final FirebaseFirestore _firestore;
-  FeesService({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  final AcademicTermService _termService;
+  FeesService({FirebaseFirestore? firestore, AcademicTermService? termService})
+      : _firestore = firestore ?? FirebaseFirestore.instance,
+        _termService = termService ?? AcademicTermService(firestore: firestore);
 
   List<String> get availableTerms => _terms;
 
-  /// Fetches fee assignments + payments for a student, scoped by
-  /// studentId + academicYear the same way the original working query
-  /// was. The bursar's own balance math is just totalCharged − totalPaid with no
-  /// per-line linkage, so that's matched here too — the running total is
-  /// distributed across lines oldest-first purely for the on-screen
-  /// breakdown, never written back to Firestore.
+  /// The academic year the school is in NOW — what a new payment is filed under.
+  ///
+  /// Read from the school's open term (the bursar's own source of truth), so a
+  /// payment made in the app lands in the same year the bursar's ledger is
+  /// showing. This was a fixed constant that quietly went stale when the school
+  /// year turned. A school that has set no term yet falls back to the calendar:
+  /// September onward is the new year.
+  Future<String> currentAcademicYear(Student student) async {
+    final term = await _termService.currentTerm(student.schoolCode);
+    final fromTerm = academicYearForTerm(term);
+    return fromTerm.isNotEmpty ? fromTerm : academicYearForDate(DateTime.now());
+  }
+
+  /// Fetches a student's fee charges and payments, ALL academic years, the same
+  /// way the bursar's Student Fees screen works out a balance: everything the
+  /// student has been charged, less everything confirmed as paid. Unpaid fees
+  /// from an earlier year are still owed, so a parent must see them — filtering
+  /// to one year hid arrears and made the app's balance differ from the
+  /// school's.
+  ///
+  /// Two rules mirror the school's:
+  ///   • optional fees (a bus, a uniform) are not part of what is owed — they
+  ///     are left out, as they are in the bursar's figures;
+  ///   • only confirmed money reduces the balance (below).
+  ///
+  /// Queries filter on the student alone and sort here, so they need no
+  /// composite index. The running total is distributed across the lines
+  /// oldest-first purely for the on-screen breakdown, never written back.
   Future<FeesData> fetchStudentFees(Student student) async {
     final ctx = _ctx(student);
     final studentId = ctx['studentId'] as String;
@@ -189,17 +202,21 @@ class FeesService {
     final feeSnap = await _firestore
         .collection('fee_assignments')
         .where('studentId', isEqualTo: studentId)
-        .where('academicYear', isEqualTo: _academicYear)
         .get();
 
     final paySnap = await _firestore
         .collection('payments')
         .where('studentId', isEqualTo: studentId)
-        .where('academicYear', isEqualTo: _academicYear)
-        .orderBy('createdAt', descending: true)
         .get();
 
-    final lines = feeSnap.docs.map((doc) {
+    final feeDocs = feeSnap.docs.where((d) => d.data()['optional'] != true).toList()
+      ..sort((a, b) {
+        int key(Map<String, dynamic> m) =>
+            termSortKey((m['term'] as String?) ?? '', academicYear: (m['academicYear'] as String?) ?? '');
+        return key(a.data()).compareTo(key(b.data()));
+      });
+
+    final lines = feeDocs.map((doc) {
       final data = doc.data();
       return FeeLine(
         id: doc.id,
@@ -215,11 +232,15 @@ class FeesService {
     // Previously this summed every row in `payments`, which meant a family
     // could report a payment they had not made and watch what they owed drop.
     // A row written by the bursar, or by the PayChangu webhook, has been seen
-    // by someone; a row the app wrote on the family's say-so has not. See the
-    // PAYMENT INTEGRITY note at the foot of firestore.rules.
+    // by someone; a row the app wrote on the family's say-so has not. A claim
+    // the bursar rejected never happened, so it is neither counted nor shown.
+    // See the PAYMENT INTEGRITY note at the foot of firestore.rules.
+    final shown = paySnap.docs.where((d) => d.data()['status'] != 'rejected').toList()
+      ..sort((a, b) => _createdMillis(b.data()['createdAt']).compareTo(_createdMillis(a.data()['createdAt'])));
+
     var totalPaid = 0;
     var awaiting = 0;
-    for (final doc in paySnap.docs) {
+    for (final doc in shown) {
       final amount = (doc.data()['amount'] as num?)?.toInt() ?? 0;
       if (doc.data()['status'] == 'unverified') {
         awaiting += amount;
@@ -228,7 +249,7 @@ class FeesService {
       }
     }
 
-    final payments = paySnap.docs.map((doc) {
+    final payments = shown.map((doc) {
       final data = doc.data();
       return PaymentRecord(
         id: doc.id,
@@ -247,6 +268,10 @@ class FeesService {
       awaitingConfirmation: awaiting,
     );
   }
+
+  /// A server timestamp not yet resolved is null; it is the newest thing there is.
+  static int _createdMillis(dynamic t) =>
+      t is Timestamp ? t.millisecondsSinceEpoch : DateTime.now().millisecondsSinceEpoch;
 
   static String _formatTimestamp(dynamic timestamp) {
     if (timestamp is Timestamp) {
@@ -305,7 +330,7 @@ class FeesService {
       'receiptNo': '',
       'reportRef': reportRef,
       'recordedBy': recordedBy,
-      'academicYear': _academicYear,
+      'academicYear': await currentAcademicYear(student),
       'schoolCode': ctx['schoolCode'],
       // Required by the Firestore rule for anonymous writes, so the bursar's
       // ledger can always tell a self-reported payment from one the bursar

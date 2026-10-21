@@ -64,8 +64,23 @@ class PaymentStatus {
 class Checkout {
   final String txRef;
   final String checkoutUrl;
+
+  /// What the student's account is credited with — the amount the parent chose.
   final int amount;
-  const Checkout({required this.txRef, required this.checkoutUrl, required this.amount});
+
+  /// The processing fee added on top, and so what the parent is actually
+  /// charged. Zero when the server did not say; see [total].
+  final int fee;
+
+  const Checkout({
+    required this.txRef,
+    required this.checkoutUrl,
+    required this.amount,
+    this.fee = 0,
+  });
+
+  /// What PayChangu will take from the parent.
+  int get total => amount + fee;
 }
 
 class PayChanguService {
@@ -110,6 +125,7 @@ class PayChanguService {
       txRef: ref,
       checkoutUrl: url,
       amount: (data['amount'] as num?)?.toInt() ?? amount,
+      fee: (data['fee'] as num?)?.toInt() ?? 0,
     );
   }
 

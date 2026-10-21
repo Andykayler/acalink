@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand blue behind the adaptive icon's cap; also the launch backdrop. -->
+    <color name="ic_launcher_background">#4560E8</color>
+    <color name="acalink_launch_background">#0D1427</color>
+</resources>

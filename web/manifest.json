@@ -1,11 +1,11 @@
 {
-    "name": "acalink",
-    "short_name": "acalink",
+    "name": "Acalink",
+    "short_name": "Acalink",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0D1427",
+    "theme_color": "#4F6EF7",
+    "description": "Stay close to your child's school: fees, results, attendance and messages.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

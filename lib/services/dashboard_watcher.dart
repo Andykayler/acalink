@@ -36,7 +36,7 @@ class DashboardWatcher {
   ///
   /// Call [stop] before switching child, or the previous child's listeners
   /// keep firing and overwrite the new one's figures.
-  Stream<DashboardSection> start(Student student, {required String academicYear}) {
+  Stream<DashboardSection> start(Student student) {
     stop();
     final controller = StreamController<DashboardSection>.broadcast();
     _controller = controller;
@@ -74,15 +74,13 @@ class DashboardWatcher {
       watch(
         _firestore
             .collection('fee_assignments')
-            .where('studentId', isEqualTo: student.id)
-            .where('academicYear', isEqualTo: academicYear),
+            .where('studentId', isEqualTo: student.id),
         DashboardSection.fees,
       );
       watch(
         _firestore
             .collection('payments')
-            .where('studentId', isEqualTo: student.id)
-            .where('academicYear', isEqualTo: academicYear),
+            .where('studentId', isEqualTo: student.id),
         DashboardSection.fees,
       );
       watch(

@@ -218,7 +218,7 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
     _watchingStudentId = student.id;
     _watchSub?.cancel();
     _watchSub = _watcher
-        .start(student, academicYear: feesAcademicYear)
+        .start(student)
         .listen((section) => _refreshSection(section, student));
   }
 

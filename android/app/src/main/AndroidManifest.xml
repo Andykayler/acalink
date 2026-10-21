@@ -8,9 +8,10 @@
          moment a parent tries to pay. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="acalink"
+        android:label="Acalink"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"

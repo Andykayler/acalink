@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/api.dart';
 import '../models/student.dart';
+import '../core/transaction_fee.dart';
 import '../services/fees_service.dart';
 import '../services/paychangu_service.dart';
 import '../theme/app_colors.dart';
@@ -68,7 +69,7 @@ enum _Stage {
   failed,
 }
 
-class _PaymentSheetState extends State<PaymentSheet> {
+class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver {
   late final PayChanguService _gateway = widget.gateway ?? PayChanguService();
 
   late final TextEditingController _amountCtrl;
@@ -89,13 +90,35 @@ class _PaymentSheetState extends State<PaymentSheet> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _amountCtrl = TextEditingController(text: widget.outstandingBalance.toString());
+    // The fee line under the amount follows what is typed.
+    _amountCtrl.addListener(() {
+      if (mounted && _stage == _Stage.payForm) setState(() {});
+    });
     _term = widget.service.availableTerms.first;
     _phoneCtrl.text = widget.student.guardianPhone;
   }
 
+  /// The parent pays in their browser and then comes back to the app. Timers do
+  /// not tick while the app is in the background, so without this the sheet
+  /// would sit on "waiting" until the next poll — look straight away instead.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    final checkout = _checkout;
+    if (!mounted || _stage != _Stage.waiting || checkout == null) return;
+    _gateway.checkStatus(checkout.txRef).then((status) {
+      if (!mounted || _stage != _Stage.waiting || status.phase == PaymentPhase.pending) return;
+      _finish(status);
+    }).catchError((_) {
+      // A dropped request is not a failed payment; the poll carries on.
+    });
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // A poll left running against a closed sheet keeps asking the gateway
     // about a transaction nobody is looking at. Settlement carries on
     // server-side either way, so there is nothing to lose by stopping.
@@ -136,7 +159,7 @@ class _PaymentSheetState extends State<PaymentSheet> {
         term: _term,
         payerName: widget.recordedBy,
         payerPhone: _phoneCtrl.text.trim(),
-        academicYear: feesAcademicYear,
+        academicYear: await widget.service.currentAcademicYear(widget.student),
       );
 
       if (!mounted) return;
@@ -177,27 +200,32 @@ class _PaymentSheetState extends State<PaymentSheet> {
         })
         .listen((status) {
       if (!mounted || status.phase == PaymentPhase.pending) return;
-
-      if (status.phase == PaymentPhase.success) {
-        setState(() {
-          _completed = PaymentRecord(
-            id: status.txRef,
-            method: 'PayChangu',
-            amount: status.amount,
-            date: 'Just now',
-            reference: status.txRef,
-            receiptNo: status.receiptNo ?? '',
-            verified: true,
-          );
-          _stage = _Stage.paid;
-        });
-      } else {
-        setState(() {
-          _error = 'The payment did not go through. Nothing has been charged.';
-          _stage = _Stage.failed;
-        });
-      }
+      _finish(status);
     });
+  }
+
+  /// A payment reached a final answer, from the poll or from coming back.
+  void _finish(PaymentStatus status) {
+    _watch?.cancel();
+    if (status.phase == PaymentPhase.success) {
+      setState(() {
+        _completed = PaymentRecord(
+          id: status.txRef,
+          method: 'PayChangu',
+          amount: status.amount,
+          date: 'Just now',
+          reference: status.txRef,
+          receiptNo: status.receiptNo ?? '',
+          verified: true,
+        );
+        _stage = _Stage.paid;
+      });
+    } else {
+      setState(() {
+        _error = 'The payment did not go through. Nothing has been charged.';
+        _stage = _Stage.failed;
+      });
+    }
   }
 
   // ── Report a payment made elsewhere ────────────────────────────────────
@@ -339,6 +367,7 @@ class _PaymentSheetState extends State<PaymentSheet> {
             'Part-payment is fine — pay what you can now.',
             style: TextStyle(fontSize: 11.5, color: context.colors.textMuted),
           ),
+          _feeSummary(),
           const SizedBox(height: 18),
           _label('TERM'),
           _termPicker(),
@@ -355,6 +384,45 @@ class _PaymentSheetState extends State<PaymentSheet> {
           _primaryButton('Continue to PayChangu', _payNow),
           const SizedBox(height: 8),
           _backButton(),
+        ],
+      ),
+    );
+  }
+
+  /// What the parent will really be charged, before they continue: the amount,
+  /// the processing fee on top, and the total. The school is credited the full
+  /// amount either way; the server returns the exact figures when the checkout
+  /// opens, so this is a heads-up, not the bill.
+  Widget _feeSummary() {
+    final amount = int.tryParse(_amountCtrl.text.trim()) ?? 0;
+    if (amount <= 0) return const SizedBox.shrink();
+    final q = quoteFee(amount);
+    final label = TextStyle(fontSize: 12, color: context.colors.textSecondary);
+    final value = TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.colors.textPrimary);
+    Widget row(String l, String v, {bool strong = false}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(l, style: strong ? value : label),
+              Text(v, style: strong ? value.copyWith(fontSize: 13.5) : value),
+            ],
+          ),
+        );
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.colors.cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.colors.border),
+      ),
+      child: Column(
+        children: [
+          row('Credited to school fees', formatCurrency(q.amount)),
+          row('Processing fee (4.5%)', formatCurrency(q.fee)),
+          const Divider(height: 14),
+          row('You will pay', formatCurrency(q.total), strong: true),
         ],
       ),
     );
@@ -378,8 +446,15 @@ class _PaymentSheetState extends State<PaymentSheet> {
               Text('Waiting for your payment',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: context.colors.textPrimary)),
               const SizedBox(height: 4),
-              Text(formatCurrency(_checkout?.amount ?? 0),
+              Text(formatCurrency(_checkout?.total ?? 0),
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: context.colors.textPrimary)),
+              if ((_checkout?.fee ?? 0) > 0) ...[
+                const SizedBox(height: 2),
+                Text(
+                  '${formatCurrency(_checkout!.amount)} fees + ${formatCurrency(_checkout!.fee)} processing fee',
+                  style: TextStyle(fontSize: 11.5, color: context.colors.textSecondary),
+                ),
+              ],
               const SizedBox(height: 2),
               Text(_checkout?.txRef ?? '',
                   style: TextStyle(
