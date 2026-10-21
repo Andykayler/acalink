@@ -420,7 +420,9 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
             style: TextStyle(fontSize: 11.5, color: context.colors.textMuted),
           ),
           if (_error != null) _errorRow(_error!),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
+          _howItWorks(),
+          const SizedBox(height: 16),
           _primaryButton('Pay now', _payNow),
           const SizedBox(height: 4),
           Center(
@@ -628,6 +630,47 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
   }
 
   // ── Small pieces ───────────────────────────────────────────────────────
+
+  /// What each way of paying involves, so nobody is surprised by the next screen.
+  Widget _howItWorks() {
+    Widget line(IconData icon, String title, String body) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 17, color: context.colors.primaryLight),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(children: [
+                    TextSpan(text: '$title  ', style: TextStyle(fontWeight: FontWeight.w700, color: context.colors.textPrimary)),
+                    TextSpan(text: body),
+                  ]),
+                  style: TextStyle(fontSize: 11.5, height: 1.45, color: context.colors.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 2),
+      decoration: BoxDecoration(
+        color: context.colors.cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.colors.border),
+      ),
+      child: Column(
+        children: [
+          line(Icons.smartphone_rounded, 'Mobile money.',
+              'A PIN prompt appears on the phone number you enter. Approve it there. The quickest way to pay.'),
+          line(Icons.account_balance_rounded, 'Bank transfer.',
+              'We show you an account number and the exact amount. Send it from your own bank app or USSD using Instant Transfer, then come back here.'),
+          line(Icons.credit_card_rounded, 'Card.',
+              'Opens PayChangu\'s secure page in your browser. Choose the payment method shown there.'),
+        ],
+      ),
+    );
+  }
 
   Widget _bankCard(BankDetails b) {
     Widget row(String label, String value, {String? copy}) => Padding(
