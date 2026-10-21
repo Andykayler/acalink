@@ -52,6 +52,9 @@ class PaymentSheet extends StatefulWidget {
   State<PaymentSheet> createState() => _PaymentSheetState();
 }
 
+/// Card payments are hidden until PayChangu activates them on the account.
+const _cardEnabled = false;
+
 const _payMethodIcons = {
   PayMethod.airtelMoney: Icons.phone_iphone_rounded,
   PayMethod.tnmMpamba: Icons.phone_android_rounded,
@@ -352,7 +355,7 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
         _ChoiceTile(
           icon: Icons.smartphone_rounded,
           title: 'Pay now',
-          subtitle: 'Airtel Money, TNM Mpamba or card. Confirmed straight away.',
+          subtitle: _cardEnabled ? 'Airtel Money, TNM Mpamba or card. Confirmed straight away.' : 'Airtel Money, TNM Mpamba or bank transfer. Confirmed straight away.',
           highlight: true,
           onTap: () => setState(() => _stage = _Stage.payForm),
         ),
@@ -432,6 +435,7 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
                   style: TextStyle(fontSize: 12.5, color: context.colors.textSecondary)),
             ),
           ),
+          if (_cardEnabled) ...[
           Center(
             child: TextButton(
               onPressed: () => _payNow(card: true),
@@ -439,6 +443,7 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
                   style: TextStyle(fontSize: 12.5, color: context.colors.textSecondary)),
             ),
           ),
+          ],
           _backButton(),
         ],
       ),
@@ -665,7 +670,7 @@ class _PaymentSheetState extends State<PaymentSheet> with WidgetsBindingObserver
               'A PIN prompt appears on the phone number you enter. Approve it there. The quickest way to pay.'),
           line(Icons.account_balance_rounded, 'Bank transfer.',
               'We show you an account number and the exact amount. Send it from your own bank app or USSD using Instant Transfer, then come back here.'),
-          line(Icons.credit_card_rounded, 'Card.',
+          if (_cardEnabled) line(Icons.credit_card_rounded, 'Card.',
               'Opens PayChangu\'s secure page in your browser. Choose the payment method shown there.'),
         ],
       ),
